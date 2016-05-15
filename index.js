@@ -4,6 +4,7 @@ var detective = require('detective')
   , fs = require('fs')
   , path = require('path')
   , mod = require('module').Module
+  , findRoot = require('find-root')
 
 var findPath = mod._findPath
   , lookupPaths = mod._resolveLookupPaths
@@ -111,7 +112,7 @@ function entryObject(filename) {
  * @param  {String}   parent   The file to query
  * @param  {Function} callback
  */
-function getChildren(parent, callback) {
+function getChildren(parent, options, callback) {
     if (typeof parent === 'string') {
         parent = { filename: parent }
     }
@@ -135,7 +136,24 @@ function getChildren(parent, callback) {
             return callback(e)
         }
 
+        var pkg
+        var pkgRoot = findRoot(filename)
+        if (pkgRoot) {
+          pkg = require(path.join(pkgRoot, 'package.json'), 'utf-8')
+        }
+
         modules = modules.map(function(id) {
+            var packageRelativeId = id
+            if (id.startsWith('.')) {
+              packageRelativeId = './' + path.relative(pkgRoot, path.resolve(path.dirname(filename), id))
+              if (!packageRelativeId.endsWith('.js')) { packageRelativeId += '.js' }
+            }
+            if (pkg && pkg.browser && pkg.browser[packageRelativeId]) {
+                id = pkg.browser[packageRelativeId]
+                id = path.resolve(pkgRoot, id)
+                id = path.relative(path.dirname(filename), id)
+            }
+
             if (id.match(/^[\.\/]/)) {
                 return findRelative(id
                     , path.resolve(path.dirname(filename))
@@ -204,7 +222,7 @@ function getChildrenRecursive(entry, options, callback) {
         if (!nextFile) return next()
         var absolute = path.resolve(nextFile)
 
-        getChildren(results[absolute] || absolute, function(err, children) {
+        getChildren(results[absolute] || absolute, options, function(err, children) {
             if (err && first) {
                 return next(err)
             } else
@@ -268,7 +286,7 @@ module.exports = getChildrenRecursive
 module.exports.children = function children(filename, callback) {
     var absolute = path.resolve(filename)
 
-    getChildren(filename, function(err, children) {
+    getChildren(filename, {}, function(err, children) {
         if (err) return callback(err)
 
         children.unshift(entryObject(absolute))
